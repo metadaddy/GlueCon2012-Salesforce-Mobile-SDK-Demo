@@ -194,6 +194,10 @@ if (forcetk.Client === undefined) {
     }
 
     /**
+     * Retrieve a Blob field. We must go direct, since jQuery ajax() does not yet handle arraybuffer.
+     * @param objtype object type; e.g. "ContentVersion"
+     * @param id the record's object ID
+     * @param field field for which to return data; e.g. VersionData
      * @param callback function to which response will be passed
      * @param [error=null] function to which request will be passed in case of error
      * @param rety true if we've already tried refresh token flow once
