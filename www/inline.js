@@ -100,7 +100,7 @@ function onPhotoDataSuccess(imageData, name, contactId) {
         // Now update the Contact record with the new ContentVersion Id
         SFHybridApp.logToConsole('Created ContentVersion ' + data.id);
         forcetkClient.update('Contact', contactId, { 
-            "superpat__ImageId__c" : data.id 
+            "Image_ID__c" : data.id 
         }, function(){
             $j.mobile.hidePageLoadingMsg();
             SFHybridApp.logToConsole('Updated Contact '+contactId);
@@ -146,14 +146,14 @@ function onSuccessSfdcSingleContact(response) {
     //Set up image
     $j('#Image').attr('data-id', contact.Id);
     $j('#Image').attr('data-name', contact.Name);
-    if (contact.superpat__ImageId__c) {
+    if (contact.Image_ID__c) {
         // Load image data
         $j('#Image').attr('src', "images/loading.png");
         
         $j.mobile.changePage('#jqm-detail');
         
         forcetkClient.retrieveBlobField("ContentVersion", 
-                contact.superpat__ImageId__c, "VersionData", function(response) {
+                contact.Image_ID__c, "VersionData", function(response) {
             var base64data = base64ArrayBuffer(response);
             $j('#Image').attr('src', "data:image/png;base64,"+base64data);
             $j.mobile.hidePageLoadingMsg();
@@ -185,7 +185,7 @@ function onSuccessSfdcContactList(response) {
         newLi.click(function(e){
             e.preventDefault();
             $j.mobile.showPageLoadingMsg();
-            forcetkClient.query("SELECT Id, Name, Account.Name, Phone, superpat__ImageId__c "+
+            forcetkClient.query("SELECT Id, Name, Account.Name, Phone, Image_ID__c "+
                     "FROM Contact WHERE Id = '"+id+"'", 
                     onSuccessSfdcSingleContact, onErrorSfdc);
         });
