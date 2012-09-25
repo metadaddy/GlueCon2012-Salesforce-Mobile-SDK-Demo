@@ -32,6 +32,61 @@
  * console, go to Your Name | Setup | Security Controls | Remote Site Settings
  */
 
+ // Converts an ArrayBuffer directly to base64, without any intermediate 'convert to string then
+ // use window.btoa' step. From http://pastebin.com/23PLrQ1Q via 
+ // http://www.modelmetrics.com/tomgersic/using-xmlhttprequest2-in-ios-5-to-download-binary-files-using-html5phonegap/
+ function base64ArrayBuffer(arrayBuffer) {
+     var base64    = '';
+     var encodings = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+     var bytes         = new Uint8Array(arrayBuffer);
+     var byteLength    = bytes.byteLength;
+     var byteRemainder = byteLength % 3;
+     var mainLength    = byteLength - byteRemainder;
+
+     var a, b, c, d;
+     var chunk;
+
+     // Main loop deals with bytes in chunks of 3
+     for (var i = 0; i < mainLength; i = i + 3) {
+         // Combine the three bytes into a single integer
+         chunk = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+
+         // Use bitmasks to extract 6-bit segments from the triplet
+         a = (chunk & 16515072) >> 18; // 16515072 = (2^6 - 1) << 18
+         b = (chunk & 258048)   >> 12; // 258048   = (2^6 - 1) << 12
+         c = (chunk & 4032)     >>  6; // 4032     = (2^6 - 1) << 6
+         d = chunk & 63;               // 63       = 2^6 - 1
+
+         // Convert the raw binary segments to the appropriate ASCII encoding
+         base64 += encodings[a] + encodings[b] + encodings[c] + encodings[d];
+     }
+
+     // Deal with the remaining bytes and padding
+     if (byteRemainder == 1) {
+         chunk = bytes[mainLength];
+
+         a = (chunk & 252) >> 2; // 252 = (2^6 - 1) << 2
+
+         // Set the 4 least significant bits to zero
+         b = (chunk & 3)   << 4; // 3   = 2^2 - 1
+
+         base64 += encodings[a] + encodings[b] + '=='
+     } else if (byteRemainder == 2) {
+         chunk = (bytes[mainLength] << 8) | bytes[mainLength + 1];
+
+         a = (chunk & 64512) >> 10; // 64512 = (2^6 - 1) << 10
+         b = (chunk & 1008)  >>  4; // 1008  = (2^6 - 1) << 4
+
+         // Set the 2 least significant bits to zero
+         c = (chunk & 15)    <<  2; // 15    = 2^4 - 1
+
+         base64 += encodings[a] + encodings[b] + encodings[c] + '=';
+     }
+
+     return base64;
+}
+ 
 var forcetk = window.forcetk;
 
 if (forcetk === undefined) {
@@ -52,7 +107,7 @@ if (forcetk.Client === undefined) {
      * @param [clientId=null] 'Consumer Key' in the Remote Access app settings
      * @param [loginUrl='https://login.salesforce.com/'] Login endpoint
      * @param [proxyUrl=null] Proxy URL. Omit if running on Visualforce or 
-     *                  PhoneGap etc
+     *                  Cordova etc
      * @constructor
      */
     forcetk.Client = function(clientId, loginUrl, proxyUrl) {
@@ -60,7 +115,7 @@ if (forcetk.Client === undefined) {
         this.loginUrl = loginUrl || 'https://login.salesforce.com/';
         if (typeof proxyUrl === 'undefined' || proxyUrl === null) {
             if (location.protocol === 'file:') {
-                // In PhoneGap
+                // In Cordova
                 this.proxyUrl = null;
             } else {
                 // In Visualforce
@@ -193,63 +248,6 @@ if (forcetk.Client === undefined) {
         });
     }
 
-    /**
-     * Retrieve a Blob field. We must go direct, since jQuery ajax() does not yet handle arraybuffer.
-     * @param objtype object type; e.g. "ContentVersion"
-     * @param id the record's object ID
-     * @param field field for which to return data; e.g. VersionData
-     * @param callback function to which response will be passed
-     * @param [error=null] function to which request will be passed in case of error
-     * @param rety true if we've already tried refresh token flow once
-     **/
-    forcetk.Client.prototype.retrieveBlobField = function(objtype, id, field, callback, error, retry) {
-        var that = this;
-        var url = this.instanceUrl + '/services/data/' + this.apiVersion + '/sobjects/' + objtype + '/' + id + '/' + field;
-        
-        var request = new XMLHttpRequest();
-        
-        request.open("GET",  (this.proxyUrl !== null) ? this.proxyUrl: url, true);
-        request.responseType = "arraybuffer";
-        
-        request.setRequestHeader(that.authzHeader, "OAuth " + that.sessionId);
-        request.setRequestHeader('X-User-Agent', 'salesforce-toolkit-rest-javascript/' + that.apiVersion);
-        if (this.proxyUrl !== null) {
-            request.setRequestHeader('SalesforceProxy-Endpoint', url);
-        }
-        
-        request.onreadystatechange = function() {
-            // continue if the process is completed
-            if (request.readyState == 4) {
-                // continue only if HTTP status is "OK"
-                if (request.status == 200) {
-                    try {
-                        // retrieve the response
-                        callback(request.response);
-                    }
-                    catch(e) {
-                        // display error message
-                        alert("Error reading the response: " + e.toString());
-                    }
-                }
-                //refresh token in 401
-                else if(request.status == 401 && !retry) {
-                    that.refreshAccessToken(function(oauthResponse) {
-                        that.setSessionToken(oauthResponse.access_token, null,oauthResponse.instance_url);
-                        that.blobRetrieve(objtype, id, field, callback, error, true);
-                    },
-                    error);
-                } 
-                else {
-                    // display status message
-                    error(request,request.statusText,request.response);
-                }
-            }            
-            
-        }
-        
-        request.send();
-    }
-    
     /*
      * Lists summary information about each Salesforce.com version currently 
      * available, including the version, label, and a link to each version's
@@ -405,5 +403,102 @@ if (forcetk.Client === undefined) {
     forcetk.Client.prototype.search = function(sosl, callback, error) {
         this.ajax('/' + this.apiVersion + '/search?s=' + escape(sosl)
         , callback, error);
+    }
+    
+    /**
+     * @param callback function to which response will be passed
+     * @param [error=null] function to which request will be passed in case of error
+     * @param rety true if we've already tried refresh token flow once
+     **/
+    forcetk.Client.prototype.retrieveBlobField = function(objtype, id, field, callback, error, retry) {
+        var that = this;
+        var url = this.instanceUrl + '/services/data/' + this.apiVersion + '/sobjects/' + objtype + '/' + id + '/' + field;
+
+        var request = new XMLHttpRequest();
+
+        request.open("GET",  (this.proxyUrl !== null) ? this.proxyUrl: url, true);
+        request.responseType = "arraybuffer";
+
+        request.setRequestHeader(that.authzHeader, "OAuth " + that.sessionId);
+        request.setRequestHeader('X-User-Agent', 'salesforce-toolkit-rest-javascript/' + that.apiVersion);
+        if (this.proxyUrl !== null) {
+            request.setRequestHeader('SalesforceProxy-Endpoint', url);
+        }
+
+        request.onreadystatechange = function() {
+            // continue if the process is completed
+            if (request.readyState == 4) {
+                // continue only if HTTP status is "OK"
+                if (request.status == 200) {
+                    try {
+                        // retrieve the response
+                        callback(request.response);
+                    }
+                    catch(e) {
+                        // display error message
+                        alert("Error reading the response: " + e.toString());
+                    }
+                }
+                //refresh token in 401
+                else if(request.status == 401 && !retry) {
+                    that.refreshAccessToken(function(oauthResponse) {
+                        that.setSessionToken(oauthResponse.access_token, null,oauthResponse.instance_url);
+                        that.blobRetrieve(objtype, id, field, callback, error, true);
+                    },
+                    error);
+                } 
+                else {
+                    // display status message
+                    error(request,request.statusText,request.response);
+                }
+            }            
+
+        }
+
+        request.send();
+    }
+
+    /*
+     * Low level utility function to call the Salesforce endpoint specific for Apex REST API.
+     * @param path resource path relative to /services/apexrest
+     * @param callback function to which response will be passed
+     * @param [error=null] function to which jqXHR will be passed in case of error
+     * @param [method="GET"] HTTP method for call
+     * @param [payload=null] payload for POST/PATCH etc
+     */
+    forcetk.Client.prototype.apexrest = function(path, callback, error, method, payload, retry) {
+        var that = this;
+        var url = this.instanceUrl + '/services/apexrest' + path;
+
+        $j.ajax({
+            type: method || "GET",
+            async: this.asyncAjax,
+            url: (this.proxyUrl !== null) ? this.proxyUrl: url,
+            contentType: 'application/json',
+            cache: false,
+            processData: false,
+            data: (typeof payload === 'object') ? JSON.stringify(payload) : payload,
+            success: callback,
+            error: (!this.refreshToken || retry ) ? error : function(jqXHR, textStatus, errorThrown) {
+                if (jqXHR.status === 401) {
+                    that.refreshAccessToken(function(oauthResponse) {
+                        that.setSessionToken(oauthResponse.access_token, null,
+                        oauthResponse.instance_url);
+                        that.apexrest(path, callback, error, method, payload, true);
+                    },
+                    error);
+                } else {
+                    error(jqXHR, textStatus, errorThrown);
+                }
+            },
+            dataType: "json",
+            beforeSend: function(xhr) {
+                if (that.proxyUrl !== null) {
+                    xhr.setRequestHeader('SalesforceProxy-Endpoint', url);
+                }
+                xhr.setRequestHeader(that.authzHeader, "OAuth " + that.sessionId);
+                xhr.setRequestHeader('X-User-Agent', 'salesforce-toolkit-rest-javascript/' + that.apiVersion);
+            }
+        });
     }
 }
